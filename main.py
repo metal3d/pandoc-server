@@ -2,11 +2,11 @@ from cgi import parse_qs
 from subprocess import Popen, PIPE
 from tempfile import mkstemp
 import os
+import logging
 
 def pandoc(m, hl=None):
 
     ret = False
-
     tf, tp = mkstemp(suffix=".pdf")
     try:
         cmd = ["pandoc", 
@@ -20,24 +20,20 @@ def pandoc(m, hl=None):
         p.stdin.write(m)
         p.stdin.close()
         p.wait()
-    except Exception, e:
-        ret = e
-    try:
         f = open(tp,'r')
         ret = f.read()
         f.close()
     except Exception, e:
-        ret = e
-    try:
-        os.remove(tp)
-    except Exception, e:
-        ret = e
-    
-    if ret:
-        raise Exception(ret)
+        logging.exception(e)
+        raise Exception(e)
+    finally:
+        try:
+            os.remove(tp)
+        except:
+            pass
+
 
     return ret
-
 
 def set_cors(response_headers, environ):
     response_headers.append(('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'))
@@ -60,11 +56,12 @@ def app(environ, start_response):
         response_headers = [('Content-Type', 'text/plain')]
         set_cors(response_headers, environ)
         start_response('500 InternalServerError', response_headers)
-        return [e.message]
+        return [""]
 
     response_headers = [
         ('Content-Type', 'application/pdf'),
-        ('Content-Disposition', 'attachment; filename="' + title + '.pdf"')
+        ('Content-Disposition', 'attachment; filename=' + title + '.pdf'),
+        ('Content-Transfer-Encoding', 'binary')
     ]
     set_cors(response_headers, environ)
     start_response('200 OK', response_headers)
@@ -74,4 +71,5 @@ def app(environ, start_response):
 if __name__ == '__main__':
     from wsgiref.simple_server import make_server
     srv = make_server('localhost', 8080, app)
+    logging.info("Listening 8080")
     srv.serve_forever()

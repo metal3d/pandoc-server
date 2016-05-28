@@ -1,10 +1,26 @@
-from cgi import parse_qs
-from subprocess import Popen, PIPE
-from tempfile import mkstemp
-import os
 import logging
+import os
+import shutil
+import tarfile
+from cgi import FieldStorage
+from subprocess import PIPE, Popen
+from tempfile import mkdtemp, mkstemp
 
-def pandoc(m, hl=None):
+
+def pandoc(m, hl=None, tar=None, template=None):
+
+
+    td = None
+    if tar and template is None:
+        raise Exception("tar given but no template name")
+    if template and tar is None:
+        raise Exception("template given but no tar")
+    if tar.file:
+        td = mkdtemp()
+        os.chdir(td)
+        tgz = tarfile.open(fileobj=tar.file, mode='r:gz')
+        tgz.extractall('.')
+        tgz.close()
 
     ret = False
     tf, tp = mkstemp(suffix=".pdf")
@@ -15,6 +31,9 @@ def pandoc(m, hl=None):
         if hl is not None:
             cmd.insert(1, "--highlight-style")
             cmd.insert(2, hl)
+        if template:
+            cmd.insert(1, "--template")
+            cmd.insert(2, template)
 
         p = Popen(cmd, stdin=PIPE)
         p.stdin.write(m)
@@ -27,6 +46,11 @@ def pandoc(m, hl=None):
         logging.exception(e)
         raise Exception(e)
     finally:
+        if td:
+            try:
+                shutil.rmtree(td)
+            except Exception as e:
+                logging.exception(e)
         try:
             os.remove(tp)
         except:
@@ -43,20 +67,36 @@ def set_cors(response_headers, environ):
         response_headers.append(('Access-Control-Allow-Headers', ach))
 
 def app(environ, start_response):
-    length = int(environ.get('CONTENT_LENGTH', '0'))
-    body = environ['wsgi.input'].read(length)
-    p = parse_qs(body)
-    m = p.get("m")[0]
-    hl = p.get("hl",[None])[0]
-    title = p.get("t", ["article"])[0]
+    post = FieldStorage(
+            fp = environ['wsgi.input'],
+            environ = environ,
+            keep_blank_values = True)
+
+    # Get post vars
+    m = post['m'] if 'm' in post else None
+    if m is None:
+        response_headers = [('Content-Type', 'text/plain')]
+        set_cors(response_headers, environ)
+        start_response('500 InternalServerError', response_headers)
+        return ["You must provide content !"]
+
+    if m.file:
+        m = m.file.read()
+    else:
+        m = m.value
+
+    hl = post['hl'].value if 'hl' in post else None
+    title = post['t'].value if 't' in post else 'pandoc_generated'
+    template = post['tpl'].value if 'tpl' in post else None
+    tar = post['tar'] if 'tar' in post else None
 
     try:
-        pdf = pandoc(m, hl)
+        pdf = pandoc(m, hl, tar, template)
     except Exception, e:
         response_headers = [('Content-Type', 'text/plain')]
         set_cors(response_headers, environ)
         start_response('500 InternalServerError', response_headers)
-        return [""]
+        return ["Something went wrong...",e.message]
 
     response_headers = [
         ('Content-Type', 'application/pdf'),

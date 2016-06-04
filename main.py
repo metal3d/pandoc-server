@@ -15,7 +15,7 @@ def pandoc(m, hl=None, tar=None, template=None):
         raise Exception("tar given but no template name")
     if template and tar is None:
         raise Exception("template given but no tar")
-    if tar.file:
+    if tar is not None and hasattr(tar,'file'):
         td = mkdtemp()
         os.chdir(td)
         tgz = tarfile.open(fileobj=tar.file, mode='r:gz')
